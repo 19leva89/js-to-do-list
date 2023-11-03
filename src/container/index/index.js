@@ -6,6 +6,10 @@ export class Todo {
 	static taskCounter = 0; // Додана змінна для підрахунку завдань
 	static #list = []; // Масив для зберігання завдань
 
+	static generateUniqueId() {
+		return Math.floor(1000 + Math.random() * 9000);
+	}
+
 	static init = () => {
 		this.#block = document.querySelector('.task__list');
 		this.#template = document.getElementById('task').content.firstElementChild;
@@ -26,14 +30,34 @@ export class Todo {
 		// Оновлюємо стилі на основі LocalStorage
 		this.updateTaskStylesFromLocalStorage();
 
-		this.toggleEmptyListMessage(true); // Відображаємо фразу про порожній список при ініціалізації
+		// Додайте код для створення empty-list-message та додавання його до DOM
+		this.createEmptyListMessage();
+
+		// Викликаємо метод для перевірки, чи список порожній
+		this.toggleEmptyListMessage(true);
+	}
+
+	static createEmptyListMessage() {
+		const emptyListMessage = document.createElement('div');
+		emptyListMessage.className = 'empty-list-message';
+		emptyListMessage.textContent = 'Список задач пустий';
+
+		// Отримуємо батьківський елемент <main class="task__list">
+		const taskList = document.querySelector('.task__list');
+
+		// Додаємо emptyListMessage до батьківського елемента taskList
+		taskList.appendChild(emptyListMessage);
 	}
 
 	static addTask = () => {
 		const taskText = this.#input.value;
+
 		if (taskText) {
+			const uniqueId = this.generateUniqueId();
+			const newTask = { id: uniqueId, text: taskText, completed: false };
+
 			// Додамо завдання до масиву
-			this.#list.push({ text: taskText, completed: false });
+			this.#list.push(newTask);
 
 			// Зберігаємо оновлений масив в локальному сховищі
 			this.saveTasksToLocalStorage();
@@ -44,6 +68,8 @@ export class Todo {
 			clone.querySelector('.task__text').textContent = taskText;
 			clone.querySelector('.task__button--do').addEventListener('click', this.completeTask);
 			clone.querySelector('.task__button--cancel').addEventListener('click', this.deleteTask);
+			clone.dataset.id = uniqueId; // Зберігаємо ID у власності 'data-id'
+
 			this.#block.appendChild(clone);
 			this.#input.value = '';
 
@@ -51,64 +77,10 @@ export class Todo {
 		}
 	}
 
-	static saveTasksToLocalStorage() {
-		localStorage.setItem('tasks', JSON.stringify(this.#list));
-	}
-
-	static updateLocalStorage() {
-		localStorage.setItem('tasks', JSON.stringify(this.#list));
-	}
-
-	static loadTasksFromLocalStorage() {
-		const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
-
-		// Очищаємо список завдань перед завантаженням нових
-		this.#block.innerHTML = '';
-
-		// Встановлюємо taskCounter на відповідне значення
-		this.taskCounter = tasks.length;
-
-		// Відображаємо завдання з локального сховища
-		tasks.forEach((task, index) => {
-			const clone = document.importNode(this.#template, true);
-			clone.querySelector('.task__number').textContent = (index + 1) + '.';
-			clone.querySelector('.task__text').textContent = task.text;
-			clone.querySelector('.task__button--do').addEventListener('click', this.completeTask);
-			clone.querySelector('.task__button--cancel').addEventListener('click', this.deleteTask);
-
-			if (task.completed) {
-				clone.classList.add('done');
-				clone.querySelector('.task__number').classList.add('task__number--done');
-				clone.querySelector('.task__text').classList.add('task__text--done');
-				const doButton = clone.querySelector('.task__button');
-				if (doButton) {
-					doButton.classList.remove('task__button--do');
-					doButton.classList.add('task__button--done');
-				}
-			}
-
-			this.#block.appendChild(clone);
-
-			this.#list.push({ text: task.text, completed: task.completed });
-		});
-	}
-
-
-	static toggleEmptyListMessage() {
-		const emptyListMessage = document.querySelector('.empty-list-message');
-
-		// Використовуємо this.#list.length === 0, щоб перевірити, чи список порожній
-		if (emptyListMessage) {
-			emptyListMessage.style.display = this.#list.length === 0 ? 'block' : 'none';
-		}
-	}
-
 	static completeTask = (event) => {
 		const task = event.target.closest('.task');
-		const taskText = task.querySelector('.task__text').textContent;
-
-		// Знайдемо завдання у масиві #list за текстом
-		const taskToUpdate = this.#list.find(task => task.text === taskText);
+		const taskId = task.dataset.id;
+		const taskToUpdate = this.#list.find(task => task.id === parseInt(taskId));
 
 		if (taskToUpdate) {
 			const doButton = task.querySelector('.task__button--do');
@@ -145,31 +117,64 @@ export class Todo {
 		}
 	}
 
-
 	static deleteTask = (event) => {
 		const task = event.target.closest('.task');
+		const taskId = task.dataset.id;
 		const taskText = task.querySelector('.task__text').textContent;
 
-		// Використовуємо confirm для підтвердження видалення
 		if (confirm(`Видалити задачу "${taskText}"?`)) {
-			task.remove();
+			const taskIndex = this.#list.findIndex(task => task.id === parseInt(taskId));
 
-			// Знаходимо індекс видаленої задачі в масиві
-			const index = this.#list.findIndex(item => item.text === taskText);
-
-			if (index !== -1) {
-				// Видаляємо задачу з масиву
-				this.#list.splice(index, 1);
-
-				// Оновлюємо дані в LocalStorage, видаливши видалену задачу
+			if (taskIndex !== -1) {
+				this.#list.splice(taskIndex, 1);
 				this.updateLocalStorage();
+				task.remove();
+				this.updateTaskNumbers();
+				this.toggleEmptyListMessage();
+			}
+		}
+	}
+
+	static saveTasksToLocalStorage() {
+		localStorage.setItem('tasks', JSON.stringify(this.#list));
+	}
+
+	static loadTasksFromLocalStorage() {
+		const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+
+		// Очищаємо список завдань перед завантаженням нових
+		this.#block.innerHTML = '';
+
+		// Встановлюємо taskCounter на відповідне значення
+		this.taskCounter = tasks.length;
+
+		// Відображаємо завдання з локального сховища
+		tasks.forEach((task, index) => {
+			const clone = document.importNode(this.#template, true);
+			clone.querySelector('.task__number').textContent = (index + 1) + '.';
+			clone.querySelector('.task__text').textContent = task.text;
+			clone.querySelector('.task__button--do').addEventListener('click', this.completeTask);
+			clone.querySelector('.task__button--cancel').addEventListener('click', this.deleteTask);
+			clone.dataset.id = task.id; // Завантажуємо ID із локального сховища
+
+			if (task.completed) {
+				clone.classList.add('done');
+				clone.querySelector('.task__number').classList.add('task__number--done');
+				clone.querySelector('.task__text').classList.add('task__text--done');
+				const doButton = clone.querySelector('.task__button');
+				if (doButton) {
+					doButton.classList.remove('task__button--do');
+					doButton.classList.add('task__button--done');
+				}
 			}
 
-			this.updateTaskNumbers();
+			this.#block.appendChild(clone);
 
-			// Перевіряємо, чи список порожній і відображаємо фразу "Список задач пустий"
-			this.toggleEmptyListMessage();
-		}
+			this.#list.push({ id: task.id, text: task.text, completed: task.completed });
+		});
+
+		// Після завантаження завдань перевіряємо, чи список порожній та відображаємо відповідне повідомлення
+		this.toggleEmptyListMessage();
 	}
 
 	static updateTaskNumbers() {
@@ -181,8 +186,8 @@ export class Todo {
 		});
 	}
 
-	static renderTasks = () => {
-		// В цьому методі можна додати код для відображення завдань, які можуть бути збережені в пам'яті або отримані з сервера.
+	static updateLocalStorage() {
+		localStorage.setItem('tasks', JSON.stringify(this.#list));
 	}
 
 	static updateTaskStylesFromLocalStorage() {
@@ -220,10 +225,19 @@ export class Todo {
 		}
 	}
 
+	static toggleEmptyListMessage() {
+		const emptyListMessage = document.querySelector('.empty-list-message');
 
+		// Перевіряємо, чи список порожній за допомогою перевірки на унікальні ідентифікатори
+		if (emptyListMessage) {
+			const isListEmpty = this.#list.every(task => !task.id);
+			emptyListMessage.style.display = isListEmpty ? 'block' : 'none';
+		}
+	}
 
-
-
+	static renderTasks = () => {
+		// В цьому методі можна додати код для відображення завдань, які можуть бути збережені в пам'яті або отримані з сервера.
+	}
 }
 
 Todo.init();
